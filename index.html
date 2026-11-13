@@ -1,0 +1,73 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M-PESA Message Sender</title>
+<style>
+:root{color-scheme:light}*{box-sizing:border-box}body{font:16px Arial,sans-serif;max-width:600px;margin:30px auto;padding:0 15px;color:#222}
+label{display:block;margin-top:10px;font-weight:bold}input,select{width:100%;padding:10px;box-sizing:border-box;font-size:16px;border:1px solid #bbb;border-radius:5px}
+.row{display:flex;gap:10px}.row>div{flex:1;min-width:0}button{padding:12px 24px;font-size:16px;margin-top:15px;cursor:pointer;border:0;border-radius:5px;background:#087f45;color:white}
+button:disabled{opacity:.6;cursor:wait}.box{background:#f2f2f2;padding:10px;margin-top:5px;border-radius:6px;white-space:pre-wrap;word-break:break-word}#cur{font-size:20px;font-weight:bold}#r{margin-top:15px;font-weight:bold}.auth{border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:18px}.small{font-size:12px;color:#666}
+</style></head><body>
+<h2></h2>
+<div class="auth">
+  <label for="api">Backend URL</label><input id="api" type="url" placeholder="https://your-secure-api.example.com">
+  <button id="login" type="button" onclick="connectBackend()">Connect</button><div id="authmsg" role="status"></div>
+  <div class="small"></div>
+</div>
+<label>Current balance</label><div class="box" id="cur">Connect to load balance</div>
+<label>User ID</label><input id="uid" value="cUjNcsXy48hLMkY5FylTmMv7QJz1">
+<div class="row"><div><label>Reference ID</label><input id="ref" value="UKAKR22PXE"></div>
+<div><label>Type</label><select id="type"><option value="received">Received</option><option value="sent">Sent</option></select></div></div>
+<label>Name (sender or recipient)</label><input id="name" value="GOLDLINE MARKETS">
+<label>Amount</label><input id="amount" type="number" step="0.01" min="0.01" value="300">
+<div class="row"><div><label>Date (auto)</label><input id="date" readonly></div><div><label>Time (auto)</label><input id="time" readonly></div></div>
+<label>Message preview</label><div class="box" id="prev"></div>
+<button id="b" type="button" onclick="send()">Send</button><div id="r" role="status"></div>
+<script>
+"use strict";
+let connected=false, cur=null, balTimer=null;
+const $=id=>document.getElementById(id);
+function apiBase(){return $("api").value.trim().replace(/\/+$/,"");}
+function fmt(c){return (c/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
+function p2(n){return String(n).padStart(2,"0");}
+function tick(){const d=new Date();$("date").value=p2(d.getDate())+"/"+p2(d.getMonth()+1)+"/"+String(d.getFullYear()).slice(2);let h=d.getHours(),ap=h>=12?"PM":"AM";h=h%12||12;$("time").value=h+":"+p2(d.getMinutes())+" "+ap;show();}
+function build(){if(cur===null)return "Balance unavailable. Check the connection.";const t=$("type").value,ac=Math.round(Number($("amount").value||0)*100),nb=t==="received"?cur+ac:cur-ac,id=$("ref").value.trim(),nm=$("name").value.trim(),dt=$("date").value,tm=$("time").value,tail="New M-PESA balance is Ksh"+fmt(nb)+". Invest & earn daily interest with ZIIDI on https://saf.cx/cF6ir";if(t==="received")return id+" Confirmed.You have received Ksh"+fmt(ac)+" from "+nm+" on "+dt+" at "+tm+"  "+tail;return id+" Confirmed. Ksh"+fmt(ac)+" sent to "+nm+" on "+dt+" at "+tm+".  "+tail;}
+function show(){$("prev").textContent=build();}
+async function request(path,opts={}){if(!apiBase())throw Error("Enter the backend URL.");const headers={...(opts.headers||{})};const r=await fetch(apiBase()+path,{...opts,headers});let j={};try{j=await r.json();}catch{}if(!r.ok)throw Error(j.status||j.error||("Request failed ("+r.status+")"));return j;}
+async function connectBackend(){const b=$("login");b.disabled=true;$("authmsg").textContent="Connectingâ€¦";try{await loadBal(true);if(!connected)throw Error("Could not load the balance.");$("authmsg").textContent="Connected.";if(balTimer)clearInterval(balTimer);balTimer=setInterval(()=>loadBal(false),3000);}catch(e){connected=false;$("authmsg").textContent="Unable to connect: "+e.message;}finally{b.disabled=false;}}
+async function loadBal(showError=true){try{const j=await request("/balance");cur=(j.cents===undefined?null:j.cents);$("cur").textContent=cur===null?"unavailable":"Ksh "+fmt(cur);connected=cur!==null;if(!connected)throw Error("Balance unavailable.");}catch(e){connected=false;cur=null;$("cur").textContent="unavailable: "+e.message;if(showError)throw e;}show();}
+async function send(){const b=$("b"),r=$("r");if(!connected){r.textContent="Connect to the backend first.";return;}if(!$("ref").value.trim()||!$("amount").value||Number($("amount").value)<=0){r.textContent="Fill in a reference ID and valid amount.";return;}b.disabled=true;r.textContent="Sendingâ€¦";try{const j=await request("/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({uid:$("uid").value,ref:$("ref").value.trim(),type:$("type").value,name:$("name").value.trim(),amount:$("amount").value})});r.textContent="Result: "+j.status+(j.newBalance?" | New balance: Ksh "+j.newBalance:"");}catch(e){r.textContent="Error: "+e.message;}finally{b.disabled=false;await loadBal();}}
+const STORAGE_KEY = "mpesaSenderForm_v1";
+const SAVED_FIELDS = ["api","uid","ref","type","name","amount"];
+
+function restoreForm() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        SAVED_FIELDS.forEach(id => {
+            if (saved[id] !== undefined) $(id).value = saved[id];
+        });
+    } catch (e) {
+        console.warn("Could not restore saved form details:", e);
+    }
+}
+
+function saveForm() {
+    const data = {};
+    SAVED_FIELDS.forEach(id => data[id] = $(id).value);
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+        console.warn("Could not save form details:", e);
+    }
+}
+
+restoreForm();
+
+SAVED_FIELDS.forEach(id => {
+    $(id).addEventListener("input", saveForm);
+    $(id).addEventListener("change", saveForm);
+});
+["ref","type","name","amount"].forEach(i=>$(i).addEventListener("input",show));tick();setInterval(tick,1000);
+</script></body></html>
+
